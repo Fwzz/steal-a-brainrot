@@ -6,13 +6,26 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
-humanoid.UseJumpPower = true -- Forçar uso do JumpPower
+humanoid.UseJumpPower = true
 
--- God Mode
+-- God Mode (permite morrer ao resetar)
+local resetting = false
+
+player.CharacterAdded:Connect(function(char)
+	char:WaitForChild("Humanoid").Died:Connect(function()
+		resetting = false
+	end)
+end)
+
 humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-	if humanoid.Health < humanoid.MaxHealth then
+	if humanoid.Health < humanoid.MaxHealth and not resetting then
 		humanoid.Health = humanoid.MaxHealth
 	end
+end)
+
+game:GetService("StarterGui"):SetCore("ResetButtonCallback", function()
+	resetting = true
+	player:LoadCharacter()
 end)
 
 -- GUI
@@ -46,7 +59,7 @@ stroke.Thickness = 2
 local corner = Instance.new("UICorner", mainFrame)
 corner.CornerRadius = UDim.new(0, 12)
 
--- Suporte a arrastar no celular
+-- Suporte a arrastar com touch
 local dragging = false
 local dragInput, dragStart, startPos
 
@@ -121,14 +134,15 @@ local function createToggle(name, positionY, callback)
 	end)
 end
 
--- Jump Boost 300%
+-- Jump Boost (reduzido em 35%)
 local jumpLoop
 createToggle("Jump Boost", 10, function(active)
 	if active then
-		humanoid.JumpPower = 150
+		humanoid.UseJumpPower = true
+		humanoid.JumpPower = 33
 		if jumpLoop then jumpLoop:Disconnect() end
 		jumpLoop = RunService.Heartbeat:Connect(function()
-			humanoid.JumpPower = 150
+			humanoid.JumpPower = 33
 		end)
 	else
 		if jumpLoop then jumpLoop:Disconnect() end
@@ -147,8 +161,29 @@ createToggle("Anti-Ragdoll", 50, function(active)
 	end
 end)
 
--- ESP
+-- ESP (corrigido pra desligar também)
+local espConnections = {}
+
+local function clearESP()
+	for _, con in pairs(espConnections) do
+		con:Disconnect()
+	end
+	espConnections = {}
+
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr.Character and plr.Character:FindFirstChild("Head") then
+			local head = plr.Character.Head
+			local tag = head:FindFirstChild("NameTag")
+			if tag then
+				tag:Destroy()
+			end
+		end
+	end
+end
+
 local function createESP()
+	clearESP()
+
 	for _, plr in pairs(Players:GetPlayers()) do
 		if plr ~= player and plr.Character then
 			local head = plr.Character:FindFirstChild("Head")
@@ -170,14 +205,23 @@ local function createESP()
 	end
 end
 
+local espLoop
 createToggle("ESP Players", 90, function(active)
 	if active then
 		createESP()
-		task.spawn(function()
-			while wait(180) do
-				createESP()
+		espLoop = RunService.Stepped:Connect(function()
+			for _, plr in pairs(Players:GetPlayers()) do
+				if plr.Character and plr.Character:FindFirstChild("Head") then
+					local head = plr.Character.Head
+					if not head:FindFirstChild("NameTag") and plr ~= player then
+						createESP()
+					end
+				end
 			end
 		end)
+	else
+		if espLoop then espLoop:Disconnect() end
+		clearESP()
 	end
 end)
 
