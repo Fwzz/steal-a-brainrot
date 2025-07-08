@@ -1,14 +1,43 @@
+-- Serviços
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
 local screenGui, openButton, mainFrame, exitButton
-local jumpLoop, espLoop
+local espLoop
 local espEnabled = false
+local infiniteJumpEnabled = false
 
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+humanoid.UseJumpPower = true
+
+-- Evita morrer por pular infinitamente ou contato com barreiras
+local function antiDeath()
+    -- Cura instantânea caso dano ocorra por barreiras
+    humanoid.HealthChanged:Connect(function(health)
+        if health < humanoid.MaxHealth * 0.3 then
+            humanoid.Health = humanoid.MaxHealth
+        end
+    end)
+
+    -- Detectar partes perigosas e curar
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") and (part.Name:lower():find("lava") or part.Name:lower():find("barreira") or part.Name:lower():find("damage")) then
+            part.Touched:Connect(function(hit)
+                if hit.Parent == character then
+                    humanoid.Health = humanoid.MaxHealth
+                end
+            end)
+        end
+    end
+end
+
+antiDeath()
+
+-- GUI setup (cria a interface)
 local function setupGui()
-    -- GUI (mesmo código do seu GUI, criado uma vez)
     if screenGui then screenGui:Destroy() end
 
     screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
@@ -39,24 +68,7 @@ local function setupGui()
     local corner = Instance.new("UICorner", mainFrame)
     corner.CornerRadius = UDim.new(0, 12)
 
-    -- Botão de sair rápido
-    exitButton = Instance.new("TextButton", screenGui)
-    exitButton.Size = UDim2.new(0, 100, 0, 30)
-    exitButton.Position = UDim2.new(0.5, -50, 0, 10)
-    exitButton.Text = "SAIR RÁPIDO"
-    exitButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
-    exitButton.TextColor3 = Color3.new(1, 1, 1)
-    exitButton.BorderSizePixel = 0
-    exitButton.MouseButton1Click:Connect(function()
-        game:Shutdown()
-    end)
-
-    openButton.MouseButton1Click:Connect(function()
-        mainFrame.Visible = not mainFrame.Visible
-    end)
-
-    -- Drag no touch (o código que já tinha para arrastar)
-
+    -- Drag para celular
     local dragging = false
     local dragInput, dragStart, startPos
 
@@ -94,153 +106,148 @@ local function setupGui()
             update(input)
         end
     end)
+
+    -- Botão de sair rápido
+    exitButton = Instance.new("TextButton", screenGui)
+    exitButton.Size = UDim2.new(0, 100, 0, 30)
+    exitButton.Position = UDim2.new(0.5, -50, 0, 10)
+    exitButton.Text = "SAIR RÁPIDO"
+    exitButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    exitButton.TextColor3 = Color3.new(1, 1, 1)
+    exitButton.BorderSizePixel = 0
+    exitButton.MouseButton1Click:Connect(function()
+        game:Shutdown()
+    end)
+
+    openButton.MouseButton1Click:Connect(function()
+        mainFrame.Visible = not mainFrame.Visible
+    end)
 end
 
+-- Cria toggles simples com círculo indicador
+local function createToggle(name, posY, callback)
+    local container = Instance.new("Frame", mainFrame)
+    container.Size = UDim2.new(1, -20, 0, 30)
+    container.Position = UDim2.new(0, 10, 0, posY)
+    container.BackgroundTransparency = 1
+
+    local label = Instance.new("TextLabel", container)
+    label.Size = UDim2.new(1, -40, 1, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.SourceSansBold
+    label.TextScaled = true
+
+    local circle = Instance.new("TextButton", container)
+    circle.Size = UDim2.new(0, 20, 0, 20)
+    circle.Position = UDim2.new(1, -30, 0.5, -10)
+    circle.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    circle.Text = ""
+    circle.BorderSizePixel = 0
+    Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+
+    local active = false
+    circle.MouseButton1Click:Connect(function()
+        active = not active
+        circle.BackgroundColor3 = active and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+        callback(active)
+    end)
+end
+
+-- Setup personagem e conexões
 local function setupCharacter(char)
-    local humanoid = char:WaitForChild("Humanoid")
+    humanoid = char:WaitForChild("Humanoid")
     humanoid.UseJumpPower = true
 
-    -- Jump Boost Toggle
-    local jumpActive = false
-    if jumpLoop then jumpLoop:Disconnect() end
-
-    local function toggleJump(active)
-        jumpActive = active
-        if active then
-            humanoid.JumpPower = 125
-            jumpLoop = RunService.Heartbeat:Connect(function()
-                humanoid.JumpPower = 125
-            end)
-        else
-            if jumpLoop then jumpLoop:Disconnect() end
-            humanoid.JumpPower = 50
+    -- Infinite Jump
+    local function onJumpRequest()
+        if infiniteJumpEnabled then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
         end
     end
 
-    -- Anti-Ragdoll Toggle
-    local ragdollConns = {}
-    local function toggleAntiRagdoll(active)
-        if active then
-            table.insert(ragdollConns, char.ChildAdded:Connect(function(child)
-                if child:IsA("BodyVelocity") or child.Name:lower():match("ragdoll") then
-                    child:Destroy()
-                end
-            end))
-        else
-            for _, conn in pairs(ragdollConns) do
-                conn:Disconnect()
-            end
-            ragdollConns = {}
-        end
-    end
-
-    -- ESP Toggle
-    local espActive = false
-    local function clearESP()
-        for _, plr in pairs(Players:GetPlayers()) do
-            if plr.Character and plr.Character:FindFirstChild("Head") then
-                local tag = plr.Character.Head:FindFirstChild("NameTag")
-                if tag then tag:Destroy() end
-            end
-        end
-    end
-
-    local function createESP()
-        for _, plr in pairs(Players:GetPlayers()) do
-            if plr ~= player and plr.Character and plr.Character:FindFirstChild("Head") then
-                local head = plr.Character.Head
-                if not head:FindFirstChild("NameTag") then
-                    local gui = Instance.new("BillboardGui", head)
-                    gui.Name = "NameTag"
-                    gui.Size = UDim2.new(0, 100, 0, 20)
-                    gui.StudsOffset = Vector3.new(0, 2, 0)
-                    gui.AlwaysOnTop = true
-                    local label = Instance.new("TextLabel", gui)
-                    label.Size = UDim2.new(1, 0, 1, 0)
-                    label.BackgroundTransparency = 1
-                    label.Text = plr.Name
-                    label.TextColor3 = Color3.fromRGB(255, 0, 0)
-                    label.TextScaled = true
-                end
-            end
-        end
-    end
-
-    local espConnections = {}
-    local function toggleESP(active)
-        espActive = active
-        if active then
-            createESP()
-            if espLoop then espLoop:Disconnect() end
-            espLoop = RunService.Stepped:Connect(function()
-                if not espActive then return end
-                createESP()
-            end)
-        else
-            if espLoop then espLoop:Disconnect() end
-            clearESP()
-        end
-    end
-
-    -- Criar toggles na GUI
-    mainFrame:ClearAllChildren()
-
-    -- Recriar cantos, borda, etc
-    local stroke = Instance.new("UIStroke", mainFrame)
-    stroke.Color = Color3.fromRGB(100, 150, 255)
-    stroke.Thickness = 2
-    local corner = Instance.new("UICorner", mainFrame)
-    corner.CornerRadius = UDim.new(0, 12)
-
-    -- Função para criar toggles simples, reaproveitada:
-    local function createToggleGUI(name, posY, callback)
-        local container = Instance.new("Frame", mainFrame)
-        container.Size = UDim2.new(1, -20, 0, 30)
-        container.Position = UDim2.new(0, 10, 0, posY)
-        container.BackgroundTransparency = 1
-
-        local label = Instance.new("TextLabel", container)
-        label.Size = UDim2.new(1, -40, 1, 0)
-        label.Position = UDim2.new(0, 0, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = name
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Font = Enum.Font.SourceSansBold
-        label.TextScaled = true
-
-        local circle = Instance.new("TextButton", container)
-        circle.Size = UDim2.new(0, 20, 0, 20)
-        circle.Position = UDim2.new(1, -30, 0.5, -10)
-        circle.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-        circle.Text = ""
-        circle.BorderSizePixel = 0
-        Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
-
-        local active = false
-        circle.MouseButton1Click:Connect(function()
-            active = not active
-            circle.BackgroundColor3 = active and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-            callback(active)
-        end)
-    end
-
-    -- Criar os toggles
-    createToggleGUI("Jump Boost", 10, toggleJump)
-    createToggleGUI("Anti-Ragdoll", 50, toggleAntiRagdoll)
-    createToggleGUI("ESP Players", 90, toggleESP)
-
-    -- Botão sair rápido já existe fora, ligado no setupGui
+    UserInputService.JumpRequest:Connect(onJumpRequest)
 end
 
--- Setup inicial GUI e personagem
+-- ESP
+local espLoop, espEnabled = nil, false
+local function clearESP()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr.Character and plr.Character:FindFirstChild("Head") then
+            local tag = plr.Character.Head:FindFirstChild("NameTag")
+            if tag then tag:Destroy() end
+        end
+    end
+end
+
+local function createESP()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            if not head:FindFirstChild("NameTag") then
+                local gui = Instance.new("BillboardGui", head)
+                gui.Name = "NameTag"
+                gui.Size = UDim2.new(0, 100, 0, 20)
+                gui.StudsOffset = Vector3.new(0, 2, 0)
+                gui.AlwaysOnTop = true
+                local label = Instance.new("TextLabel", gui)
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.BackgroundTransparency = 1
+                label.Text = plr.Name
+                label.TextColor3 = Color3.fromRGB(255, 0, 0)
+                label.TextScaled = true
+            end
+        end
+    end
+end
+
+local function toggleESP(active)
+    espEnabled = active
+    if active then
+        createESP()
+        if espLoop then espLoop:Disconnect() end
+        espLoop = RunService.Stepped:Connect(function()
+            if not espEnabled then return end
+            createESP()
+        end)
+    else
+        if espLoop then espLoop:Disconnect() end
+        clearESP()
+    end
+end
+
+-- Setup GUI
 setupGui()
 
+-- Cria toggles no GUI
+createToggle("Infinite Jump", 10, function(active)
+    infiniteJumpEnabled = active
+end)
+
+createToggle("Anti-Ragdoll", 50, function(active)
+    if active then
+        character.ChildAdded:Connect(function(child)
+            if child:IsA("BodyVelocity") or child.Name:lower():match("ragdoll") then
+                child:Destroy()
+            end
+        end)
+    end
+end)
+
+createToggle("ESP Players", 90, function(active)
+    toggleESP(active)
+end)
+
+-- Conecta personagem spawn (reset)
 player.CharacterAdded:Connect(function(char)
     character = char
     setupCharacter(char)
 end)
 
+-- Setup inicial se já tiver personagem
 if player.Character then
     setupCharacter(player.Character)
 end
